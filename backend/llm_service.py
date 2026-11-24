@@ -9,6 +9,7 @@ from litellm.exceptions import (
     ServiceUnavailableError,
     InternalServerError,
     APIConnectionError,
+    Timeout,
 )
 
 # ==========================================
@@ -147,6 +148,7 @@ def generate_with_fallback(messages, simulated_failures=None):
                 max_tokens=256,
                 num_retries=0,
                 caching=True,
+                timeout=8 if provider["key_id"] == "key_1" else 20,
             )
 
             # ----------------------------------
@@ -217,6 +219,7 @@ def generate_with_fallback(messages, simulated_failures=None):
             ServiceUnavailableError,
             InternalServerError,
             APIConnectionError,
+            Timeout,
         ):
             fallback_attempts += 1
             continue

@@ -1,4 +1,6 @@
 
+from fastapi.middleware.cors import CORSMiddleware
+
 
 import os
 import time
@@ -42,14 +44,62 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Allow the React frontend to communicate with FastAPI.
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Simulate-Failure"],
+)
+
+
 
 @app.get("/health")
 def health():
+    from sqlalchemy import text
+    import litellm
+
+    # Verify the SQLite database is reachable.
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="database unavailable"
+        )
+
+    # Count configured API keys.
+    keys_configured = sum(
+        1 for provider in PROVIDERS
+        if provider.get("api_key")
+    )
+
+    # Verify LiteLLM caching is initialized.
+    cache_enabled = litellm.cache is not None
+
+    if keys_configured < 2 or not cache_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="AI gateway not ready"
+        )
+
     return {
         "status": "ok",
-        "keys_configured": 0,
-        "cache_enabled": False
+        "keys_configured": keys_configured,
+        "cache_enabled": cache_enabled
     }
+
 
 
 @app.get("/sessions/{session_id}/messages")
