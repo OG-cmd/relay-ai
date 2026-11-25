@@ -1,0 +1,37 @@
+
+# API keys and environment files
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python generated files
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Local SQLite database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Git files
+.git/
+.gitignore
+
+# Tests and temporary files
+test_*.py
+tests/
+*.log
+
+# Documentation
+README.md
+
+# Editor files
+.vscode/
+.idea/

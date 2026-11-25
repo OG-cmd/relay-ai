@@ -1,5 +1,6 @@
 
 import os
+import re
 
 import litellm
 from dotenv import load_dotenv
@@ -10,50 +11,78 @@ from litellm.exceptions import (
     InternalServerError,
     APIConnectionError,
     Timeout,
+    APIError,
 )
 
 # ==========================================
-# 1. ENVIRONMENT AND CACHE CONFIGURATION
+# 1. ENVIRONMENT CONFIGURATION
 # ==========================================
 
 load_dotenv()
 
 litellm.suppress_debug_info = True
-
-# LiteLLM built-in local response cache
 litellm.cache = Cache(type="local")
-
-
-# ==========================================
-# 2. MODEL CONFIGURATION
-# ==========================================
 
 GEMINI_MODEL = "gemini/gemini-3.1-flash-lite"
 GROQ_MODEL = "groq/openai/gpt-oss-20b"
 
 
 # ==========================================
-# 3. PROVIDER POOL
+# 2. ORDERED API KEY POOL
 # ==========================================
+
+def load_key_pool():
+    raw_pool = os.getenv("LLM_API_KEYS", "")
+
+    keys = [
+        value.strip()
+        for value in raw_pool.split(",")
+        if value.strip()
+    ]
+
+    if len(keys) < 2:
+        raise ValueError(
+            "LLM_API_KEYS must contain at least two API keys"
+        )
+
+    # Reject unresolved environment placeholders.
+    for key in keys:
+        if re.search(r"\$\{[^}]+\}", key):
+            raise ValueError(
+                "LLM_API_KEYS contains an unresolved variable"
+            )
+
+    return keys
+
+
+API_KEYS = load_key_pool()
+
+# The provider order matches the key order in .env.
+PROVIDER_MODELS = [
+    ("gemini", GEMINI_MODEL),
+    ("groq", GROQ_MODEL),
+]
+
+if len(API_KEYS) != len(PROVIDER_MODELS):
+    raise ValueError(
+        "The number of API keys must match the "
+        "configured provider models"
+    )
 
 PROVIDERS = [
     {
-        "key_id": "key_1",
-        "provider": "gemini",
-        "model": GEMINI_MODEL,
-        "api_key": os.getenv("GEMINI_API_KEY"),
-    },
-    {
-        "key_id": "key_2",
-        "provider": "groq",
-        "model": GROQ_MODEL,
-        "api_key": os.getenv("GROQ_API_KEY"),
-    },
+        "key_id": f"key_{index + 1}",
+        "provider": provider_name,
+        "model": model_name,
+        "api_key": API_KEYS[index],
+    }
+    for index, (provider_name, model_name)
+    in enumerate(PROVIDER_MODELS)
 ]
 
 
 # ==========================================
-# 4. CUSTOM EXCEPTION
+# 3. CUSTOM EXCEPTION
 # ==========================================
 
 class AllProvidersUnavailable(Exception):
@@ -62,13 +91,13 @@ class AllProvidersUnavailable(Exception):
 
 
 # ==========================================
-# 5. INDIVIDUAL PROVIDER TESTS
+# 4. INDIVIDUAL PROVIDER TESTS
 # ==========================================
 
 def test_gemini():
     response = litellm.completion(
         model=GEMINI_MODEL,
-        api_key=os.getenv("GEMINI_API_KEY"),
+        api_key=PROVIDERS[0]["api_key"],
         messages=[
             {
                 "role": "user",
@@ -78,14 +107,13 @@ def test_gemini():
         max_tokens=100,
         num_retries=0,
     )
-
     return response.choices[0].message.content
 
 
 def test_groq():
     response = litellm.completion(
         model=GROQ_MODEL,
-        api_key=os.getenv("GROQ_API_KEY"),
+        api_key=PROVIDERS[1]["api_key"],
         messages=[
             {
                 "role": "user",
@@ -95,52 +123,40 @@ def test_groq():
         max_tokens=100,
         num_retries=0,
     )
-
     return response.choices[0].message.content
 
 
 # ==========================================
-# 6. AUTOMATIC FAILOVER AND CACHING
+# 5. FAILOVER AND CACHING
 # ==========================================
 
+RETRYABLE_ERRORS = (
+    RateLimitError,
+    ServiceUnavailableError,
+    InternalServerError,
+    APIConnectionError,
+    Timeout,
+)
+
+
 def generate_with_fallback(messages, simulated_failures=None):
-    """
-    Generate an AI response using the provider pool.
-
-    Features:
-    - Automatic provider fallback
-    - Simulated provider failures
-    - LiteLLM response caching
-    - Cache-hit detection
-    - Per-request token usage
-    """
-
     simulated_failures = simulated_failures or {}
     fallback_attempts = 0
 
     for provider in PROVIDERS:
+        key_id = provider["key_id"]
 
-        # --------------------------------------
-        # A. CHECK SIMULATED FAILURES
-        # --------------------------------------
-
-        if "*" in simulated_failures:
-            simulated_status = simulated_failures["*"]
-        else:
-            simulated_status = simulated_failures.get(
-                provider["key_id"]
-            )
+        # Simulated failures are scoped to this request.
+        simulated_status = simulated_failures.get(
+            "*",
+            simulated_failures.get(key_id),
+        )
 
         if simulated_status in (429, 500, 502, 503):
             fallback_attempts += 1
             continue
 
         try:
-
-            # ----------------------------------
-            # B. CALL LITELLM WITH CACHING
-            # ----------------------------------
-
             response = litellm.completion(
                 model=provider["model"],
                 api_key=provider["api_key"],
@@ -148,45 +164,28 @@ def generate_with_fallback(messages, simulated_failures=None):
                 max_tokens=256,
                 num_retries=0,
                 caching=True,
-                timeout=8 if provider["key_id"] == "key_1" else 20,
+                timeout=8 if key_id == "key_1" else 20,
             )
-
-            # ----------------------------------
-            # C. DETECT CACHE HIT
-            # ----------------------------------
 
             hidden_params = (
                 getattr(response, "_hidden_params", {})
                 or {}
             )
-
-            cache_hit = (
-                hidden_params.get("cache_hit", False)
-                is True
-            )
-
-            # ----------------------------------
-            # D. EXTRACT RESPONSE DATA
-            # ----------------------------------
+            cache_hit = hidden_params.get("cache_hit") is True
 
             reply = response.choices[0].message.content
 
-            if not reply or not reply.strip():
-                raise ValueError(
-                    "Provider returned an empty response"
-                )
+            if not isinstance(reply, str) or not reply.strip():
+                fallback_attempts += 1
+                continue
 
+            usage = response.usage
             input_tokens = int(
-                response.usage.prompt_tokens
+                getattr(usage, "prompt_tokens", 0) or 0
             )
-
             output_tokens = int(
-                response.usage.completion_tokens
+                getattr(usage, "completion_tokens", 0) or 0
             )
-
-            # ----------------------------------
-            # E. RETURN RESPONSE METADATA
-            # ----------------------------------
 
             return {
                 "reply": reply,
@@ -196,37 +195,30 @@ def generate_with_fallback(messages, simulated_failures=None):
                     if cache_hit
                     else "LIVE_INFERENCE"
                 ),
-                "key_id": (
-                    None
-                    if cache_hit
-                    else provider["key_id"]
-                ),
+                "key_id": None if cache_hit else key_id,
                 "fallback_attempts": (
-                    0
-                    if cache_hit
-                    else fallback_attempts
+                    0 if cache_hit else fallback_attempts
                 ),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
 
-        # --------------------------------------
-        # F. RETRYABLE PROVIDER ERRORS
-        # --------------------------------------
-
-        except (
-            RateLimitError,
-            ServiceUnavailableError,
-            InternalServerError,
-            APIConnectionError,
-            Timeout,
-        ):
+        except RETRYABLE_ERRORS:
             fallback_attempts += 1
             continue
 
-    # ------------------------------------------
-    # G. ALL PROVIDERS UNAVAILABLE
-    # ------------------------------------------
+        except APIError as exc:
+            # Other HTTP 5xx provider errors are retryable.
+            status_code = getattr(exc, "status_code", None)
+
+            if status_code == 429 or (
+                isinstance(status_code, int)
+                and 500 <= status_code <= 599
+            ):
+                fallback_attempts += 1
+                continue
+
+            raise
 
     raise AllProvidersUnavailable(
         "all providers unavailable"
