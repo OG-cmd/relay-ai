@@ -1,7 +1,7 @@
 
 import os
 import re
-
+import time
 import litellm
 from dotenv import load_dotenv
 from litellm.caching.caching import Cache
@@ -139,20 +139,37 @@ RETRYABLE_ERRORS = (
 )
 
 
+
 def generate_with_fallback(messages, simulated_failures=None):
+    """
+    Generate a response with automatic provider fallback,
+    LiteLLM caching, and safe per-provider diagnostics.
+    """
+
     simulated_failures = simulated_failures or {}
     fallback_attempts = 0
+    failover_log = []
 
     for provider in PROVIDERS:
         key_id = provider["key_id"]
+        provider_name = provider["provider"]
+        attempt_start = time.perf_counter()
 
-        # Simulated failures are scoped to this request.
         simulated_status = simulated_failures.get(
             "*",
             simulated_failures.get(key_id),
         )
 
+        # Simulate provider failure without calling its API.
         if simulated_status in (429, 500, 502, 503):
+            failover_log.append({
+                "key_id": key_id,
+                "provider": provider_name,
+                "status": "FAILED",
+                "reason": f"HTTP_{simulated_status}",
+                "simulated": True,
+                "duration_ms": 0,
+            })
             fallback_attempts += 1
             continue
 
@@ -167,15 +184,26 @@ def generate_with_fallback(messages, simulated_failures=None):
                 timeout=8 if key_id == "key_1" else 20,
             )
 
+            duration_ms = int(
+                (time.perf_counter() - attempt_start) * 1000
+            )
+
             hidden_params = (
-                getattr(response, "_hidden_params", {})
-                or {}
+                getattr(response, "_hidden_params", {}) or {}
             )
             cache_hit = hidden_params.get("cache_hit") is True
 
             reply = response.choices[0].message.content
 
             if not isinstance(reply, str) or not reply.strip():
+                failover_log.append({
+                    "key_id": key_id,
+                    "provider": provider_name,
+                    "status": "FAILED",
+                    "reason": "EMPTY_RESPONSE",
+                    "simulated": False,
+                    "duration_ms": duration_ms,
+                })
                 fallback_attempts += 1
                 continue
 
@@ -187,34 +215,75 @@ def generate_with_fallback(messages, simulated_failures=None):
                 getattr(usage, "completion_tokens", 0) or 0
             )
 
+            resolution_source = (
+                "LLM_CACHE" if cache_hit else "LIVE_INFERENCE"
+            )
+
+            failover_log.append({
+                "key_id": key_id,
+                "provider": provider_name,
+                "status": "SUCCESS",
+                "reason": resolution_source,
+                "simulated": False,
+                "duration_ms": duration_ms,
+            })
+
             return {
                 "reply": reply,
                 "model": provider["model"],
-                "resolution_source": (
-                    "LLM_CACHE"
-                    if cache_hit
-                    else "LIVE_INFERENCE"
-                ),
+                "resolution_source": resolution_source,
                 "key_id": None if cache_hit else key_id,
                 "fallback_attempts": (
                     0 if cache_hit else fallback_attempts
                 ),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "failover_log": failover_log,
             }
 
-        except RETRYABLE_ERRORS:
+        except RETRYABLE_ERRORS as exc:
+            duration_ms = int(
+                (time.perf_counter() - attempt_start) * 1000
+            )
+
+            status_code = getattr(exc, "status_code", None)
+
+            failover_log.append({
+                "key_id": key_id,
+                "provider": provider_name,
+                "status": "FAILED",
+                "reason": (
+                    f"HTTP_{status_code}"
+                    if status_code
+                    else type(exc).__name__
+                ),
+                "simulated": False,
+                "duration_ms": duration_ms,
+            })
+
             fallback_attempts += 1
             continue
 
         except APIError as exc:
-            # Other HTTP 5xx provider errors are retryable.
             status_code = getattr(exc, "status_code", None)
 
             if status_code == 429 or (
                 isinstance(status_code, int)
                 and 500 <= status_code <= 599
             ):
+                duration_ms = int(
+                    (time.perf_counter() - attempt_start) * 1000
+                )
+
+                failover_log.append({
+                    "key_id": key_id,
+                    "provider": provider_name,
+                    "status": "FAILED",
+                    "reason": f"HTTP_{status_code}",
+                    "simulated": False,
+                    "duration_ms": duration_ms,
+                })
+
                 fallback_attempts += 1
                 continue
 
@@ -223,3 +292,4 @@ def generate_with_fallback(messages, simulated_failures=None):
     raise AllProvidersUnavailable(
         "all providers unavailable"
     )
+

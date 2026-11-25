@@ -229,7 +229,8 @@ def chat(
             "input_tokens": result["input_tokens"],
             "output_tokens": result["output_tokens"],
             "key_id": result["key_id"],
-            "fallback_attempts": result["fallback_attempts"]
+            "fallback_attempts": result["fallback_attempts"],
+            "failover_log": result.get("failover_log", [])
        }
 
         # Store the user's message

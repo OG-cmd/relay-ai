@@ -13,6 +13,9 @@ import {
   LoaderCircle,
   History,
   MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
 } from "lucide-react";
 
 import "./App.css";
@@ -32,6 +35,7 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expandedTraces, setExpandedTraces] = useState({});
 
   // Read known conversation IDs from browser storage.
   const [conversations, setConversations] = useState(() => {
@@ -103,6 +107,7 @@ function App() {
 
       setMessages(data.messages);
       setSessionId(conversationId);
+      setExpandedTraces({});
       setInput("");
     } catch (err) {
       setError(
@@ -116,11 +121,19 @@ function App() {
   // ==========================================
   // START A NEW CONVERSATION
   // ==========================================
+  
+  function toggleTrace(messageIndex) {
+    setExpandedTraces((previous) => ({
+      ...previous,
+      [messageIndex]: !previous[messageIndex],
+    }));
+  }
 
   function startNewChat() {
     if (loading) return;
 
     setSessionId(createSessionId());
+    setExpandedTraces({});
     setMessages([]);
     setInput("");
     setError("");
@@ -383,9 +396,7 @@ function App() {
                 key={index}
                 className={`message ${message.role}`}
                 {...(message.role === "assistant"
-                  ? {
-                      "data-testid": "assistant-message",
-                    }
+                  ? { "data-testid": "assistant-message" }
                   : {})}
               >
                 <div className="message-avatar">
@@ -398,58 +409,91 @@ function App() {
 
                 <div className="message-body">
                   <div className="message-author">
-                    {message.role === "assistant"
-                      ? "Relay AI"
-                      : "You"}
+                    {message.role === "assistant" ? "Relay AI" : "You"}
                   </div>
 
                   <div className="message-content">
                     {message.content}
                   </div>
 
+                  {message.role === "assistant" && message.metadata && (
+                    <div className="metadata">
+                      <span className="metadata-item" data-testid="meta-source">
+                        <Zap size={13} />
+                        {message.metadata.resolution_source}
+                      </span>
+                      <span className="metadata-item" data-testid="meta-model">
+                        <Cpu size={13} />
+                        {message.metadata.model}
+                      </span>
+                      <span className="metadata-item" data-testid="meta-latency">
+                        <Clock3 size={13} />
+                        {message.metadata.latency_ms} ms
+                      </span>
+                      <span className="metadata-item">
+                        Input: <span data-testid="meta-input-tokens">{message.metadata.input_tokens}</span>
+                      </span>
+                      <span className="metadata-item">
+                        Output: <span data-testid="meta-output-tokens">{message.metadata.output_tokens}</span>
+                      </span>
+                    </div>
+                  )}
+
                   {message.role === "assistant" &&
-                    message.metadata && (
-                      <div className="metadata">
-                        <span
-                          className="metadata-item"
-                          data-testid="meta-source"
+                    message.metadata?.failover_log?.length > 0 && (
+                      <div className="gateway-diagnostics">
+                        <button
+                          type="button"
+                          className="trace-toggle"
+                          onClick={() => toggleTrace(index)}
+                          aria-expanded={Boolean(expandedTraces[index])}
                         >
-                          <Zap size={13} />
-                          {
-                            message.metadata
-                              .resolution_source
-                          }
-                        </span>
-
-                        <span
-                          className="metadata-item"
-                          data-testid="meta-model"
-                        >
-                          <Cpu size={13} />
-                          {message.metadata.model}
-                        </span>
-
-                        <span
-                          className="metadata-item"
-                          data-testid="meta-latency"
-                        >
-                          <Clock3 size={13} />
-                          {message.metadata.latency_ms} ms
-                        </span>
-
-                        <span className="metadata-item">
-                          Input:
-                          <span data-testid="meta-input-tokens">
-                            {message.metadata.input_tokens}
+                          <ShieldCheck size={15} />
+                          <span>Gateway Diagnostics</span>
+                          <span className="trace-count">
+                            {message.metadata.failover_log.length} attempt(s)
                           </span>
-                        </span>
+                          {expandedTraces[index] ? (
+                            <ChevronUp size={15} />
+                          ) : (
+                            <ChevronDown size={15} />
+                          )}
+                        </button>
 
-                        <span className="metadata-item">
-                          Output:
-                          <span data-testid="meta-output-tokens">
-                            {message.metadata.output_tokens}
-                          </span>
-                        </span>
+                        {expandedTraces[index] && (
+                          <div className="trace-panel">
+                            {message.metadata.failover_log.map((attempt, attemptIndex) => (
+                              <div className="trace-entry" key={attemptIndex}>
+                                <div className="trace-entry-top">
+                                  <span className="trace-provider">
+                                    {attempt.provider} · {attempt.key_id}
+                                  </span>
+                                  <span
+                                    className={
+                                      "trace-status " +
+                                      (attempt.status === "SUCCESS"
+                                        ? "trace-success"
+                                        : "trace-failed")
+                                    }
+                                  >
+                                    {attempt.status}
+                                  </span>
+                                </div>
+                                <div className="trace-entry-details">
+                                  <span>{attempt.reason}</span>
+                                  <span>{attempt.duration_ms} ms</span>
+                                  {attempt.simulated && (
+                                    <span className="trace-simulated">Simulated</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                            <div className="trace-footer">
+                              <span>Total request latency</span>
+                              <strong>{message.metadata.latency_ms} ms</strong>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                 </div>

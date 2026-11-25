@@ -749,3 +749,136 @@ button:disabled {
   color: #7f929e;
   font-size: 12px;
 }
+
+/* ==========================================
+   RELAY AI — GATEWAY DIAGNOSTICS
+   ========================================== */
+
+.gateway-diagnostics {
+  margin-top: 14px;
+  max-width: 680px;
+}
+
+.trace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: #1b2731;
+  border: 1px solid #3b4e59;
+  border-radius: 6px;
+  color: #c9d8df;
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.trace-toggle:hover {
+  background: #263641;
+  border-color: #526b76;
+}
+
+.trace-toggle:focus-visible {
+  outline: 2px solid #86aeb6;
+  outline-offset: 2px;
+}
+
+.trace-count {
+  margin-left: auto;
+  color: #93a7b3;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.trace-panel {
+  padding: 12px;
+  background: #151e27;
+  border: 1px solid #354854;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.trace-entry {
+  padding: 13px;
+  margin-bottom: 8px;
+  background: #202d37;
+  border: 1px solid #354753;
+  border-radius: 5px;
+}
+
+.trace-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-provider {
+  color: #e0e8ed;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.trace-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.trace-success {
+  color: #91cdb0;
+}
+
+.trace-failed {
+  color: #dfa39d;
+}
+
+.trace-entry-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 9px;
+  color: #a3b5c0;
+  font-size: 11px;
+}
+
+.trace-simulated {
+  padding: 3px 7px;
+  color: #dcc798;
+  background: #383225;
+  border: 1px solid #62543a;
+  border-radius: 4px;
+}
+
+.trace-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px 3px;
+  color: #9fb1bd;
+  font-size: 11px;
+}
+
+.trace-footer strong {
+  color: #e1e9ed;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .gateway-diagnostics {
+    max-width: 100%;
+  }
+
+  .trace-toggle {
+    padding: 11px;
+    gap: 7px;
+  }
+
+  .trace-entry {
+    padding: 10px;
+  }
+}
