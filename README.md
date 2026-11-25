@@ -29,17 +29,35 @@ Relay AI is designed to remain functional when an AI provider experiences rate l
 
 ---
 
+
 ## 1. Live URLs
 
-**Frontend:** To be added after deployment.
+**Frontend:** https://relay-ai-frontend-p429.onrender.com
 
-**Backend:** To be added after deployment.
+**Backend:** https://relay-ai-backend-fu2b.onrender.com
 
-**API documentation:** To be added after deployment.
+**API Documentation:** https://relay-ai-backend-fu2b.onrender.com/docs
 
-**GitHub repository:** To be added after publishing.
+**Health Endpoint:** https://relay-ai-backend-fu2b.onrender.com/health
 
-These URLs will be updated before submission.
+**GitHub Repository:** https://github.com/OG-cmd/relay-ai
+
+### Deployment Notes
+
+The frontend is hosted as a Render Static Site, and the
+backend runs as a Render Docker Web Service.
+
+The application uses Gemini and Groq through LiteLLM,
+with automatic provider failover and response caching.
+
+The public deployment uses Render's free tier, which
+provides ephemeral storage. SQLite history can be lost
+after instance replacement or redeployment.
+
+The local Docker Compose deployment uses a persistent
+named volume mounted at /data, and its persistence
+has been verified across container restarts.
+
 
 ## 2. Run locally: with Docker and without
 
